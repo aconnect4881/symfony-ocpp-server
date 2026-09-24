@@ -14,6 +14,8 @@ final class AconnectOcppBundleTest extends TestCase
     public function testConfigurationRegistersStartCommandWithTlsAndListenerSettings(): void
     {
         $container = new ContainerBuilder();
+        $container->setParameter('kernel.environment', 'test');
+        $container->setParameter('kernel.build_dir', sys_get_temp_dir());
         (new AconnectOcppBundle())->getContainerExtension()->load([[
             'host' => '0.0.0.0',
             'port' => 8443,
