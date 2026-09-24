@@ -32,6 +32,8 @@ aconnect_ocpp:
     host: '0.0.0.0'
     port: 9000
     path_prefix: '/ocpp/'
+    credential_verifier_service: 'App\Ocpp\DatabaseChargePointCredentialVerifier'
+    client_handler_service: 'App\Ocpp\ChargePointConnectionHandler'
     tls:
         certificate: '%env(resolve:OCPP_TLS_CERTIFICATE)%'
         private_key: '%env(resolve:OCPP_TLS_PRIVATE_KEY)%'
@@ -46,23 +48,37 @@ the stations; `0.0.0.0` binds all IPv4 interfaces. The default host is
 invalid or mismatched key fails at startup. The server only accepts direct TLS
 connections, not proxy-terminated TLS.
 
-Implement the credential verifier and the connection handler in the host app,
-then bind their interfaces in `config/services.yaml`:
+The `credential_verifier_service` and `client_handler_service` settings name
+Symfony services. With the standard `App\:` service registration in
+`config/services.yaml`, the example class names are discovered automatically:
+no extra aliases are needed. The verifier class must implement
+`ChargePointCredentialVerifier`, and the handler must implement AMPHP's
+`WebsocketClientHandler`. The command receives both services through Symfony's
+container. If you omit these two config settings, the package uses the two
+interface names as service IDs, which can instead be aliased in
+`config/services.yaml`.
 
-```yaml
-services:
-    Aconnect\OcppBundle\Security\ChargePointCredentialVerifier:
-        alias: App\Ocpp\ChargePointCredentialVerifier
-    Amp\Websocket\Server\WebsocketClientHandler:
-        alias: App\Ocpp\ChargePointConnectionHandler
-```
+For a database-backed first version, see
+[`DatabaseChargePointCredentialVerifier.php`](../examples/host-app/DatabaseChargePointCredentialVerifier.php)
+and the example [SQL table](../examples/host-app/ocpp_charge_points.sql). Copy
+the class to `src/Ocpp/` in the host app and create the table with that app's
+normal migration tool. This example uses Doctrine DBAL: install DoctrineBundle
+and DBAL in the host app if necessary and configure its database connection.
+The package itself does not require Doctrine or impose a schema. Provision a
+unique random secret for each charger, for example `bin2hex(random_bytes(32))`.
+Store only `password_hash(base64_encode($secret), PASSWORD_ARGON2ID)` in the
+table; share the original secret with the charger at provisioning. Base64
+preserves binary OCPP passwords, and the verifier checks it using
+`password_verify(base64_encode($password), $storedHash)`. The host app can
+disable a charger with `enabled = 0` and rotate its secret by replacing the
+hash. This simple DBAL implementation performs a synchronous query and password
+check on the server loop; evaluate a nonblocking credential store or workers
+before serving many concurrent chargers.
 
-Those two `App\Ocpp\...` classes must exist as services and implement the
-indicated interfaces. The handler receives an authenticated WebSocket client;
-it can decode OCPP 1.6 text frames with `FrameCodec`. The package does not
-decide how credentials are stored or what OCPP actions mean to your app. A
-simple first integration can keep provisioned charger records in the host app's
-database, with one random password per charger stored as a verification hash.
+The handler receives an authenticated WebSocket client and can decode OCPP 1.6
+text frames with `FrameCodec`. The package does not decide what OCPP actions
+mean to your app; `App\Ocpp\ChargePointConnectionHandler` is a placeholder
+until the host app implements that behavior.
 
 Start the process in the host application:
 
