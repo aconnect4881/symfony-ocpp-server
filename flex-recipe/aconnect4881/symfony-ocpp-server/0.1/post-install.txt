@@ -1,0 +1,3 @@
+OCPP configuration: edit config/packages/aconnect_ocpp.yaml.
+Provide your application's credential verifier and OCPP action handler services.
+Select direct TLS with a certificate/key or an explicitly trusted TLS proxy before running php bin/console ocpp:server:start.

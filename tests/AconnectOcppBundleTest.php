@@ -6,6 +6,8 @@ namespace Aconnect\OcppBundle\Tests;
 
 use Aconnect\OcppBundle\AconnectOcppBundle;
 use Aconnect\OcppBundle\Command\StartOcppServerCommand;
+use Aconnect\OcppBundle\Protocol\V16\NotSupportedCallHandler;
+use Aconnect\OcppBundle\Security\RejectAllChargePointCredentialVerifier;
 use Symfony\Component\DependencyInjection\Reference;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -56,5 +58,20 @@ final class AconnectOcppBundleTest extends TestCase
         self::assertNull($command->getArgument('$certificate'));
         self::assertNull($command->getArgument('$privateKey'));
         self::assertNull($command->getArgument('$connectionObserver'));
+    }
+
+    public function testInstallationDefaultsToRegisteredFailClosedServices(): void
+    {
+        $container = new ContainerBuilder();
+        $container->setParameter('kernel.environment', 'test');
+        $container->setParameter('kernel.build_dir', sys_get_temp_dir());
+        (new AconnectOcppBundle())->getContainerExtension()->load([[]], $container);
+
+        self::assertTrue($container->hasDefinition(RejectAllChargePointCredentialVerifier::class));
+        self::assertTrue($container->hasDefinition(NotSupportedCallHandler::class));
+        $command = $container->getDefinition(StartOcppServerCommand::class);
+        self::assertEquals(new Reference(RejectAllChargePointCredentialVerifier::class), $command->getArgument('$verifier'));
+        self::assertEquals(new Reference(NotSupportedCallHandler::class), $command->getArgument('$actionHandler'));
+        self::assertFalse((new RejectAllChargePointCredentialVerifier())->verify('CP-01', 'some-secret'));
     }
 }

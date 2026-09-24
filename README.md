@@ -16,6 +16,12 @@ server-initiated requests have not been implemented yet.
 See [the package documentation](docs/index.md) for configuration, service
 bindings, startup, and a codec example.
 
+A [Symfony Flex recipe draft](flex-recipe/aconnect4881/symfony-ocpp-server/0.1/)
+adds a commented `config/packages/aconnect_ocpp.yaml`. Flex can apply it
+automatically once the recipe is published to `symfony/recipes-contrib`; merely
+shipping it inside this package does not register it with Flex. Until then,
+copy the recipe YAML to the host application's `config/packages/` directory.
+
 ## Development
 
 The package requires PHP 8.2 or newer and supports Symfony HttpKernel 6.4, 7.x,

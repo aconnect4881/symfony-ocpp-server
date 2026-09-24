@@ -1,0 +1,27 @@
+# OCPP 1.6 JSON server. This file is installed by the Symfony Flex recipe.
+# The two bundled services below are safe placeholders: no charger can log in
+# and no OCPP action is processed until you provide your application's services.
+aconnect_ocpp:
+    credential_verifier_service: 'Aconnect\OcppBundle\Security\RejectAllChargePointCredentialVerifier'
+    action_handler_service: 'Aconnect\OcppBundle\Protocol\V16\NotSupportedCallHandler'
+
+    # Override if needed. When the platform supplies PORT, it takes precedence.
+    # host: '127.0.0.1'
+    # port: 8081
+    # path_prefix: '/ocpp/'
+
+    # Direct WSS: supply readable certificate and private key paths before
+    # starting the server; TLS is never silently disabled.
+    # transport: direct_tls
+    # tls:
+    #     certificate: '%env(resolve:OCPP_TLS_CERTIFICATE)%'
+    #     private_key: '%env(resolve:OCPP_TLS_PRIVATE_KEY)%'
+
+    # Or terminate TLS at a trusted proxy. Only enable this when the backend
+    # listener is inaccessible to clients and the proxy OVERWRITES
+    # X-Forwarded-Proto with the original request scheme.
+    # transport: trusted_proxy
+    # trusted_proxies: ['127.0.0.1'] # Replace with the actual proxy IP/CIDR.
+
+    # Optional: update charger state in your own database on connect/disconnect.
+    # connection_observer_service: 'App\Ocpp\ConnectionObserver'

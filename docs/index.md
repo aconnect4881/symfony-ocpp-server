@@ -10,11 +10,21 @@ handlers, or a credential store.
 Once the package is available to Composer, install it in a Symfony application:
 
 ```bash
+composer config extra.symfony.allow-contrib true
 composer require aconnect4881/symfony-ocpp-server
 ```
 
-If Symfony Flex does not register the bundle automatically, add it to the host
-application's `config/bundles.php`:
+Symfony Flex enables bundles declared as `symfony-bundle` automatically. The
+draft Flex recipe is in
+[`flex-recipe/aconnect4881/symfony-ocpp-server/0.1`](../flex-recipe/aconnect4881/symfony-ocpp-server/0.1/).
+Once this recipe is accepted into `symfony/recipes-contrib`, Flex also creates
+`config/packages/aconnect_ocpp.yaml` on installation for projects that allow
+contrib recipes. Until then, copy the draft's
+[`aconnect_ocpp.yaml`](../flex-recipe/aconnect4881/symfony-ocpp-server/0.1/config/packages/aconnect_ocpp.yaml)
+to your application's `config/packages/` directory. Keeping the draft in this
+package repository alone does **not** make Flex install it automatically.
+
+Without Symfony Flex, enable the bundle in `config/bundles.php`:
 
 ```php
 return [
@@ -24,8 +34,11 @@ return [
 
 ## Start the WebSocket listener
 
-Copy [`examples/aconnect_ocpp.yaml`](../examples/aconnect_ocpp.yaml) to the
-host application's `config/packages/aconnect_ocpp.yaml`:
+The recipe YAML starts with a safe configuration: the bundled verifier rejects
+every charger and the default action handler reports `NotSupported`. Replace
+both service IDs with implementations in your application. For a direct TLS
+setup, uncomment certificate and private key paths. A fully specified example
+is available as [`examples/aconnect_ocpp.yaml`](../examples/aconnect_ocpp.yaml):
 
 ```yaml
 aconnect_ocpp:
@@ -67,9 +80,10 @@ Symfony services. With the standard `App\:` service registration in
 no extra aliases are needed. The verifier class must implement
 `ChargePointCredentialVerifier`, and the action handler must implement the
 bundle's `CallHandler`. The command receives both services through Symfony's
-container. If you omit these two config settings, the package uses the two
-interface names as service IDs, which can instead be aliased in
-`config/services.yaml`.
+container. If you omit these two config settings, the package uses its
+fail-closed verifier and `NotSupported` action handler. These defaults make
+installing the package safe even before app services are configured. The server
+cannot accept a charge point until you replace the verifier.
 
 For a database-backed first version, see
 [`DatabaseChargePointCredentialVerifier.php`](../examples/host-app/DatabaseChargePointCredentialVerifier.php)
