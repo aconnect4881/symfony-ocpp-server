@@ -13,6 +13,14 @@ composer config extra.symfony.allow-contrib true
 composer require aconnect4881/symfony-ocpp-server
 ```
 
+To preview the **current draft branch** in your existing app before a release,
+add its GitHub repository to that app's Composer configuration instead:
+
+```bash
+composer config repositories.aconnect_ocpp vcs https://github.com/aconnect4881/symfony-ocpp-server
+composer require 'aconnect4881/symfony-ocpp-server:dev-codex/package-scaffold-20260924-42njbf'
+```
+
 Symfony Flex enables the bundle. Its commented configuration file will only be
 created automatically **after** the draft recipe has been accepted into
 `symfony/recipes-contrib`. Until then, copy
