@@ -22,6 +22,60 @@ return [
 ];
 ```
 
+## Start a direct WSS listener
+
+Copy [`examples/aconnect_ocpp.yaml`](../examples/aconnect_ocpp.yaml) to the
+host application's `config/packages/aconnect_ocpp.yaml`:
+
+```yaml
+aconnect_ocpp:
+    host: '0.0.0.0'
+    port: 9000
+    path_prefix: '/ocpp/'
+    tls:
+        certificate: '%env(resolve:OCPP_TLS_CERTIFICATE)%'
+        private_key: '%env(resolve:OCPP_TLS_PRIVATE_KEY)%'
+```
+
+Set `OCPP_TLS_CERTIFICATE` and `OCPP_TLS_PRIVATE_KEY` to readable absolute paths
+to the certificate chain and its unencrypted private key. Keep the private key
+outside the web root and do not commit it. Make sure the certificate covers the
+hostname used by the charging stations. Bind `host` to an address accessible to
+the stations; `0.0.0.0` binds all IPv4 interfaces. The default host is
+`127.0.0.1`, port `9000`, and path prefix `/ocpp/`. TLS is mandatory; an
+invalid or mismatched key fails at startup. The server only accepts direct TLS
+connections, not proxy-terminated TLS.
+
+Implement the credential verifier and the connection handler in the host app,
+then bind their interfaces in `config/services.yaml`:
+
+```yaml
+services:
+    Aconnect\OcppBundle\Security\ChargePointCredentialVerifier:
+        alias: App\Ocpp\ChargePointCredentialVerifier
+    Amp\Websocket\Server\WebsocketClientHandler:
+        alias: App\Ocpp\ChargePointConnectionHandler
+```
+
+Those two `App\Ocpp\...` classes must exist as services and implement the
+indicated interfaces. The handler receives an authenticated WebSocket client;
+it can decode OCPP 1.6 text frames with `FrameCodec`. The package does not
+decide how credentials are stored or what OCPP actions mean to your app. A
+simple first integration can keep provisioned charger records in the host app's
+database, with one random password per charger stored as a verification hash.
+
+Start the process in the host application:
+
+```bash
+php bin/console ocpp:server:start
+```
+
+The charging station connects to
+`wss://your-hostname.example:9000/ocpp/<url-encoded-charge-point-id>` using
+HTTP Basic and the `ocpp1.6` subprotocol. Run the command as a long-lived
+service; SIGINT and SIGTERM stop the server. Ensure the host firewall allows the
+configured port.
+
 ## OCPP 1.6 JSON messages
 
 `FrameCodec` converts one JSON text message to a `Call`, `CallResult`, or
@@ -51,8 +105,9 @@ where appropriate and negotiate the `ocpp1.6` WebSocket subprotocol.
 
 OCPP 1.6 Security Profile 2 uses HTTP Basic over TLS. Authenticate the HTTP
 request before upgrading it to WebSocket. The Basic username must exactly match
-the charge point identity from the connection URL. The package does not extract
-that identity from a URL, terminate TLS, store passwords, or issue tokens.
+the charge point identity from the connection URL. The command extracts that
+identity from a URL and terminates TLS. The package does not store passwords
+or issue tokens.
 
 Implement `ChargePointCredentialVerifier` in the host application. Its `verify`
 method receives the URL identity and the decoded raw password bytes; a charger
@@ -95,9 +150,8 @@ delegates the RFC 6455 upgrade to AMPHP. Invalid credentials receive HTTP 401
 before the upgrade. Encoded slashes, an absent subprotocol, or a cleartext
 connection are rejected.
 
-Mount the acceptor on an AMPHP `Websocket` endpoint in the host application's
-long-running process. The host supplies its own credential verifier, PSR-3
-logger, TLS-enabled AMPHP HTTP server, and `WebsocketClientHandler`:
+The `ocpp:server:start` command mounts the acceptor on a TLS-enabled AMPHP
+`Websocket` endpoint. To embed the acceptor in a different server process, use:
 
 ```php
 use Aconnect\OcppBundle\Security\BasicAuthenticator;
@@ -109,7 +163,7 @@ $endpoint = new Websocket($tlsHttpServer, $logger, $acceptor, $hostClientHandler
 $tlsHttpServer->start($endpoint, $errorHandler);
 ```
 
-Configure the AMPHP listener with a valid TLS certificate and expose only
+The command configures the AMPHP listener with a TLS certificate and exposes
 `wss://` to charge points. A plain HTTP listener, even if its request URI says
 `https`, is rejected because TLS is checked on the actual socket. If TLS is
 terminated at a reverse proxy, this acceptor will reject the internal

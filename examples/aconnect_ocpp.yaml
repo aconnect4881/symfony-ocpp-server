@@ -1,0 +1,8 @@
+# Copy to the host Symfony application's config/packages/aconnect_ocpp.yaml.
+aconnect_ocpp:
+    host: '0.0.0.0'
+    port: 9000
+    path_prefix: '/ocpp/'
+    tls:
+        certificate: '%env(resolve:OCPP_TLS_CERTIFICATE)%'
+        private_key: '%env(resolve:OCPP_TLS_PRIVATE_KEY)%'
