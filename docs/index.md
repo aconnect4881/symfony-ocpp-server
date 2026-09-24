@@ -1,8 +1,9 @@
 # Symfony OCPP Server bundle
 
 This package is a reusable Symfony bundle with an OCPP 1.6 JSON envelope codec
-and an HTTP Basic authentication gate. It does not yet provide a WebSocket
-server or OCPP action payload validation.
+and an HTTP Basic authentication gate for AMPHP WebSocket Server. It does not
+yet provide OCPP action payload validation or a host application's message
+handlers and credential store.
 
 ## Installation
 
@@ -84,8 +85,41 @@ header or password. The host must rate-limit failed upgrades, monitor failed
 authentications, rotate credentials, and decide how to handle simultaneous
 connections from the same charge point.
 
+## AMPHP WebSocket transport
+
+The package uses `amphp/websocket-server` 4.x on `amphp/http-server` 3.x.
+`Ocpp16Acceptor` accepts only a **direct TLS connection** to the AMPHP server.
+It reads one URL segment after `/ocpp/` as the charge point identity, checks
+the `ocpp1.6` subprotocol and a single Basic Authorization header, then
+delegates the RFC 6455 upgrade to AMPHP. Invalid credentials receive HTTP 401
+before the upgrade. Encoded slashes, an absent subprotocol, or a cleartext
+connection are rejected.
+
+Mount the acceptor on an AMPHP `Websocket` endpoint in the host application's
+long-running process. The host supplies its own credential verifier, PSR-3
+logger, TLS-enabled AMPHP HTTP server, and `WebsocketClientHandler`:
+
+```php
+use Aconnect\OcppBundle\Security\BasicAuthenticator;
+use Aconnect\OcppBundle\Transport\Amp\Ocpp16Acceptor;
+use Amp\Websocket\Server\Websocket;
+
+$acceptor = new Ocpp16Acceptor(new BasicAuthenticator($hostCredentialVerifier));
+$endpoint = new Websocket($tlsHttpServer, $logger, $acceptor, $hostClientHandler);
+$tlsHttpServer->start($endpoint, $errorHandler);
+```
+
+Configure the AMPHP listener with a valid TLS certificate and expose only
+`wss://` to charge points. A plain HTTP listener, even if its request URI says
+`https`, is rejected because TLS is checked on the actual socket. If TLS is
+terminated at a reverse proxy, this acceptor will reject the internal
+cleartext hop; a trusted proxy integration must be designed for that topology.
+Your client handler can decode text messages with `FrameCodec`; it must reject
+binary frames and validate OCPP action payloads before handling them. Do not
+log Authorization headers. Avoid blocking credential-store I/O on AMPHP's event
+loop and rate-limit failed handshakes at the server or edge.
+
 ## Next design decisions
 
-Before implementing the server, choose the WebSocket transport and integrate
-the host credential verifier. Add OCPP action schemas and request correlation
-before processing messages from a charge point.
+Integrate the host credential verifier and message handler. Add OCPP action
+schemas and request correlation before processing operational messages.

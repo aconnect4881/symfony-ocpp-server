@@ -5,6 +5,8 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "amphp/http-server": "^3.0",
+        "amphp/websocket-server": "^4.0",
         "symfony/http-kernel": "^6.4 || ^7.0 || ^8.0"
     },
     "require-dev": {

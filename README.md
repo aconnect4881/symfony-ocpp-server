@@ -4,8 +4,9 @@ A reusable Symfony bundle for building an OCPP server in a host application.
 
 The package includes a Symfony bundle entry point, an OCPP 1.6 JSON envelope
 codec for CALL, CALLRESULT and CALLERROR messages, and an HTTP Basic
-authentication gate for the WebSocket handshake. Action payload validation and
-the WebSocket transport have not been implemented yet.
+authentication gate for the WebSocket handshake. An AMPHP WebSocket acceptor
+performs the authenticated OCPP 1.6 upgrade. Action payload validation and
+host application message handling have not been implemented yet.
 
 See [the package documentation](docs/index.md) for installation, a codec example,
 and the next integration decisions.
