@@ -9,15 +9,18 @@ use Revolt\EventLoop;
 use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Component\Messenger\Stamp\ReceivedStamp;
 use Symfony\Component\Messenger\Transport\TransportInterface;
+use function Amp\async;
 
 /** Polls a dedicated Messenger transport in the WebSocket server process. */
-final readonly class MessengerPump
+final class MessengerPump
 {
+    private bool $busy = false;
+
     public function __construct(
-        private TransportInterface $transport,
-        private MessageBusInterface $bus,
-        private string $transportName,
-        private LoggerInterface $logger,
+        private readonly TransportInterface $transport,
+        private readonly MessageBusInterface $bus,
+        private readonly string $transportName,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -27,7 +30,20 @@ final readonly class MessengerPump
             throw new \InvalidArgumentException('Messenger poll interval must be positive.');
         }
 
-        return EventLoop::repeat($intervalSeconds, $this->consume(...));
+        return EventLoop::repeat($intervalSeconds, function (): void {
+            if ($this->busy) {
+                return;
+            }
+
+            $this->busy = true;
+            async(function (): void {
+                try {
+                    $this->consume();
+                } finally {
+                    $this->busy = false;
+                }
+            });
+        });
     }
 
     public function consume(): void
