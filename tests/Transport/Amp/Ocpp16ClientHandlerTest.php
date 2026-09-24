@@ -10,6 +10,9 @@ use Aconnect\OcppBundle\Protocol\V16\CallHandler;
 use Aconnect\OcppBundle\Protocol\V16\FrameCodec;
 use Aconnect\OcppBundle\Protocol\V16\InvalidFrameException;
 use Aconnect\OcppBundle\Transport\Amp\Ocpp16ClientHandler;
+use Aconnect\OcppBundle\Transport\Amp\ClientRegistry;
+use Aconnect\OcppBundle\Transport\Amp\OutboundCallSender;
+use Amp\Websocket\WebsocketClient;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 
@@ -40,5 +43,23 @@ final class Ocpp16ClientHandlerTest extends TestCase
         $transport = new Ocpp16ClientHandler($this->createMock(CallHandler::class), new FrameCodec(), '/ocpp/', new NullLogger());
         $this->expectException(InvalidFrameException::class);
         $transport->respond('CP-01', '[3,"unknown",{}]');
+    }
+
+    public function testCompletesPendingServerCallWithoutSendingAnotherFrame(): void
+    {
+        $clients = new ClientRegistry();
+        $client = $this->createMock(WebsocketClient::class);
+        $clients->register('CP-01', $client);
+        $codec = new FrameCodec();
+        $sentId = null;
+        $client->method('sendText')->willReturnCallback(function (string $text) use ($codec, &$sentId): void {
+            $sentId = $codec->decode($text)->uniqueId;
+        });
+        $sender = new OutboundCallSender($clients, $codec);
+        $pending = $sender->sendCall('CP-01', 'Reset', new \stdClass());
+        $transport = new Ocpp16ClientHandler($this->createMock(CallHandler::class), $codec, '/ocpp/', new NullLogger(), null, $clients, $sender);
+
+        self::assertNull($transport->respond('CP-01', $codec->encode(new \Aconnect\OcppBundle\Protocol\V16\CallResult($sentId, (object) ['status' => 'Accepted'])), $client));
+        self::assertSame('Accepted', $pending->await()->payload->status);
     }
 }

@@ -26,6 +26,8 @@ final readonly class Ocpp16ClientHandler implements WebsocketClientHandler
         private string $pathPrefix,
         private LoggerInterface $logger,
         private ?ConnectionObserver $observer = null,
+        private ?ClientRegistry $clients = null,
+        private ?OutboundCallSender $outbound = null,
     ) {
     }
 
@@ -34,9 +36,18 @@ final readonly class Ocpp16ClientHandler implements WebsocketClientHandler
         // The acceptor has already authenticated the one URL segment after this prefix.
         $identity = rawurldecode(substr($request->getUri()->getPath(), strlen($this->pathPrefix)));
 
+        $previous = $this->clients?->register($identity, $client);
+        if ($previous !== null && $previous !== $client) {
+            $this->outbound?->disconnect($identity, $previous);
+            $previous->close();
+        }
+
         $this->notify($identity, true);
         try {
             foreach ($client as $message) {
+                if ($this->clients !== null && $this->clients->get($identity) !== $client) {
+                    return;
+                }
                 if ($message->isBinary()) {
                     $client->close(WebsocketCloseCode::UNACCEPTABLE_TYPE, 'OCPP requires text frames');
 
@@ -44,7 +55,10 @@ final readonly class Ocpp16ClientHandler implements WebsocketClientHandler
                 }
 
                 try {
-                    $client->sendText($this->respond($identity, $message->buffer()));
+                    $reply = $this->respond($identity, $message->buffer(), $client);
+                    if ($reply !== null) {
+                        $client->sendText($reply);
+                    }
                 } catch (InvalidFrameException $exception) {
                     $client->close(WebsocketCloseCode::PROTOCOL_ERROR, 'Invalid OCPP message');
 
@@ -52,7 +66,11 @@ final readonly class Ocpp16ClientHandler implements WebsocketClientHandler
                 }
             }
         } finally {
-            $this->notify($identity, false);
+            $current = $this->clients?->unregister($identity, $client) ?? true;
+            $this->outbound?->disconnect($identity, $client);
+            if ($current) {
+                $this->notify($identity, false);
+            }
         }
     }
 
@@ -78,12 +96,15 @@ final readonly class Ocpp16ClientHandler implements WebsocketClientHandler
     }
 
     /** @throws InvalidFrameException */
-    public function respond(string $identity, string $json): string
+    public function respond(string $identity, string $json, ?WebsocketClient $client = null): ?string
     {
         $call = $this->codec->decode($json);
         if (!$call instanceof Call) {
-            // This first version does not initiate CALLs, so no responses are pending.
-            throw new InvalidFrameException('Unexpected response without a pending request.');
+            if ($client === null || !$this->outbound?->resolve($identity, $client, $call)) {
+                throw new InvalidFrameException('Unexpected OCPP response without a matching request.');
+            }
+
+            return null;
         }
 
         try {

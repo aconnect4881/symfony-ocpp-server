@@ -10,8 +10,11 @@ starts a WebSocket listener configured in
 `config/packages/aconnect_ocpp.yaml`. The bundle owns the WebSocket and OCPP
 frame loop. The host application supplies a credential verifier and a handler
 for its own OCPP action responses. It supports direct TLS and an explicitly
-trusted TLS-terminating reverse proxy. OCPP action payload validation and
-server-initiated requests have not been implemented yet.
+trusted TLS-terminating reverse proxy. OCPP action payload validation has not
+been implemented yet. The server
+process also owns a client registry and sender for outgoing CALLs with reply
+correlation and timeouts. Messenger polling can be enabled for a dedicated
+queue; the host app still supplies its own message handlers.
 
 See [the package documentation](docs/index.md) for configuration, service
 bindings, startup, and a codec example.

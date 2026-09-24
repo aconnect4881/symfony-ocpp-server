@@ -11,6 +11,9 @@ use Aconnect\OcppBundle\Protocol\V16\FrameCodec;
 use Aconnect\OcppBundle\Transport\Amp\Ocpp16ClientHandler;
 use Aconnect\OcppBundle\Transport\Amp\Ocpp16Acceptor;
 use Aconnect\OcppBundle\Transport\Amp\ConnectionObserver;
+use Aconnect\OcppBundle\Transport\Amp\ClientRegistry;
+use Aconnect\OcppBundle\Transport\Amp\OutboundCallSender;
+use Aconnect\OcppBundle\Transport\Messenger\MessengerPump;
 use Amp\Http\Server\DefaultErrorHandler;
 use Amp\Http\Server\SocketHttpServer;
 use Amp\Socket\BindContext;
@@ -22,6 +25,9 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Logger\ConsoleLogger;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Messenger\MessageBusInterface;
+use Symfony\Component\Messenger\Transport\TransportInterface;
+use Revolt\EventLoop;
 use function Amp\trapSignal;
 
 #[AsCommand(name: 'ocpp:server:start', description: 'Start the OCPP 1.6 JSON WebSocket server')]
@@ -38,6 +44,11 @@ final class StartOcppServerCommand extends Command
         private readonly string $transport = 'direct_tls',
         private readonly array $trustedProxies = [],
         private readonly ?ConnectionObserver $connectionObserver = null,
+        private readonly ?ClientRegistry $clients = null,
+        private readonly ?OutboundCallSender $outbound = null,
+        private readonly ?TransportInterface $messengerTransport = null,
+        private readonly ?MessageBusInterface $messageBus = null,
+        private readonly ?string $messengerTransportName = null,
     ) {
         parent::__construct();
     }
@@ -67,13 +78,23 @@ final class StartOcppServerCommand extends Command
         $server->expose($this->host.':'.$port, $context);
 
         $acceptor = new Ocpp16Acceptor(new BasicAuthenticator($this->verifier), $this->pathPrefix, null, $this->transport === 'trusted_proxy' ? $this->trustedProxies : []);
-        $endpoint = new Websocket($server, $logger, $acceptor, new Ocpp16ClientHandler($this->actionHandler, new FrameCodec(), $this->pathPrefix, $logger, $this->connectionObserver));
+        $clients = $this->clients ?? new ClientRegistry();
+        $outbound = $this->outbound ?? new OutboundCallSender($clients, new FrameCodec());
+        $endpoint = new Websocket($server, $logger, $acceptor, new Ocpp16ClientHandler($this->actionHandler, new FrameCodec(), $this->pathPrefix, $logger, $this->connectionObserver, $clients, $outbound));
         $server->start($endpoint, new DefaultErrorHandler());
+
+        $pumpId = null;
+        if ($this->messengerTransport !== null && $this->messageBus !== null && $this->messengerTransportName !== null) {
+            $pumpId = (new MessengerPump($this->messengerTransport, $this->messageBus, $this->messengerTransportName, $logger))->start();
+        }
 
         $output->writeln(sprintf('OCPP 1.6 WebSocket server listening at %s://%s:%d%s{chargePointId}', $this->transport === 'direct_tls' ? 'wss' : 'ws', $this->host, $port, $this->pathPrefix));
         try {
             trapSignal([SIGINT, SIGTERM]);
         } finally {
+            if ($pumpId !== null) {
+                EventLoop::cancel($pumpId);
+            }
             $server->stop();
         }
 

@@ -25,3 +25,7 @@ aconnect_ocpp:
 
     # Optional: update charger state in your own database on connect/disconnect.
     # connection_observer_service: 'App\Ocpp\ConnectionObserver'
+
+    # Optional: consume a dedicated Symfony Messenger queue in this process.
+    # messenger_transport: ocpp
+    # messenger_bus_service: messenger.default_bus

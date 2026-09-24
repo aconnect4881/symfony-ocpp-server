@@ -107,16 +107,36 @@ decodes OCPP 1.6 JSON, passes incoming CALLs to `CallHandler`, and sends back
 CALLRESULT or CALLERROR with the same message ID. The app's handler receives
 the charge point identity and a decoded `Call`, and returns a response payload
 (`stdClass`) or `CallError`. It decides what those actions mean to its data;
-`App\Ocpp\ChargePointActionHandler` is an app-specific placeholder. The bundle
-does not yet initiate its own CALLs or correlate replies to them.
+`App\Ocpp\ChargePointActionHandler` is an app-specific placeholder.
 
 Optionally set `connection_observer_service` to a Symfony service implementing
 `ConnectionObserver`. The bundle calls it on connection and disconnection; the
 app can update its own charger's status or last-seen time there. Callback
 exceptions are logged without terminating the WebSocket server. The bundle
-does not depend on your `ChargeBox` entity or Doctrine storage. The example
-client registry, outbound sender and Messenger polling are not yet bundled;
-server-initiated requests and their reply correlation need further work.
+does not depend on your `ChargeBox` entity or Doctrine storage.
+
+The bundled `ClientRegistry` tracks active WebSocket clients in the server
+process. When a charger connects again under the same identity, the newer
+connection replaces and closes the older one; an older disconnect cannot
+remove the replacement. `OutboundCallSender::sendCall($identity, $action,
+$payload)` sends an OCPP CALL and returns an AMPHP `Future` resolving to a
+`CallResult` or `CallError`. It matches responses by identity, WebSocket client
+and unique ID, expires unanswered calls after 30 seconds by default, and fails
+pending calls if the connection ends. Only use this service inside the server
+process; a separate PHP web request has its own container and no access to
+these active connections.
+
+If the host application uses Messenger, install `symfony/messenger` and
+configure a dedicated transport named `ocpp`. Set `messenger_transport: ocpp`
+in `aconnect_ocpp.yaml`; the command then polls `messenger.transport.ocpp` and
+dispatches each envelope with a `ReceivedStamp('ocpp')` through
+`messenger.default_bus`, acknowledges successful dispatch, and rejects failed
+dispatches. Host Messenger handlers can inject `OutboundCallSender` because
+they now run inside the server process. Set `messenger_bus_service` if your
+application uses a different bus. Keep the queue consumer dedicated to this
+server; a second worker consuming the same transport cannot reach its in-memory
+client registry. Use a transport whose `get()` call returns promptly, because
+blocking broker calls will delay WebSocket handling on the AMPHP loop.
 
 Start the process in the host application:
 
@@ -152,10 +172,10 @@ if ($message instanceof Call) {
 }
 ```
 
-The codec does not check action names against the OCPP schema, validate their
-payloads, correlate a response with an outstanding request, or enforce unique
-IDs across a WebSocket connection. The application action handler validates
-the relevant action payloads; the bundle negotiates `ocpp1.6`.
+The codec does not check action names against the OCPP schema or validate their
+payloads. The server's sender correlates responses to outgoing calls; the
+application action handler validates the relevant action payloads and the
+bundle negotiates `ocpp1.6`.
 
 ## Charge point authentication
 
@@ -232,5 +252,5 @@ loop and rate-limit failed handshakes at the server or edge.
 ## Next design decisions
 
 Integrate the host credential verifier and action handler. Add OCPP action
-schemas and server-initiated request correlation before processing all
+schemas and verify interoperability with actual chargers before processing all
 operational messages.

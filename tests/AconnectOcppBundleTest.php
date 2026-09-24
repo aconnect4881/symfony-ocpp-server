@@ -8,6 +8,8 @@ use Aconnect\OcppBundle\AconnectOcppBundle;
 use Aconnect\OcppBundle\Command\StartOcppServerCommand;
 use Aconnect\OcppBundle\Protocol\V16\NotSupportedCallHandler;
 use Aconnect\OcppBundle\Security\RejectAllChargePointCredentialVerifier;
+use Aconnect\OcppBundle\Transport\Amp\ClientRegistry;
+use Aconnect\OcppBundle\Transport\Amp\OutboundCallSender;
 use Symfony\Component\DependencyInjection\Reference;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -40,6 +42,8 @@ final class AconnectOcppBundleTest extends TestCase
         self::assertEquals(new Reference('app.test_action_handler'), $command->getArgument('$actionHandler'));
         self::assertEquals(new Reference('app.test_connection_observer'), $command->getArgument('$connectionObserver'));
         self::assertTrue($command->hasTag('console.command'));
+        self::assertEquals(new Reference(ClientRegistry::class), $command->getArgument('$clients'));
+        self::assertEquals(new Reference(OutboundCallSender::class), $command->getArgument('$outbound'));
     }
 
     public function testProxyConfigurationNeedsNoLocalCertificate(): void
@@ -58,6 +62,8 @@ final class AconnectOcppBundleTest extends TestCase
         self::assertNull($command->getArgument('$certificate'));
         self::assertNull($command->getArgument('$privateKey'));
         self::assertNull($command->getArgument('$connectionObserver'));
+        self::assertNull($command->getArgument('$messengerTransport'));
+        self::assertNull($command->getArgument('$messageBus'));
     }
 
     public function testInstallationDefaultsToRegisteredFailClosedServices(): void
@@ -73,5 +79,21 @@ final class AconnectOcppBundleTest extends TestCase
         self::assertEquals(new Reference(RejectAllChargePointCredentialVerifier::class), $command->getArgument('$verifier'));
         self::assertEquals(new Reference(NotSupportedCallHandler::class), $command->getArgument('$actionHandler'));
         self::assertFalse((new RejectAllChargePointCredentialVerifier())->verify('CP-01', 'some-secret'));
+    }
+
+    public function testMessengerTransportReferencesAreOnlyAddedWhenConfigured(): void
+    {
+        $container = new ContainerBuilder();
+        $container->setParameter('kernel.environment', 'test');
+        $container->setParameter('kernel.build_dir', sys_get_temp_dir());
+        (new AconnectOcppBundle())->getContainerExtension()->load([[
+            'messenger_transport' => 'ocpp',
+            'messenger_bus_service' => 'messenger.bus.default',
+        ]], $container);
+
+        $command = $container->getDefinition(StartOcppServerCommand::class);
+        self::assertEquals(new Reference('messenger.transport.ocpp'), $command->getArgument('$messengerTransport'));
+        self::assertEquals(new Reference('messenger.bus.default'), $command->getArgument('$messageBus'));
+        self::assertSame('ocpp', $command->getArgument('$messengerTransportName'));
     }
 }
