@@ -90,7 +90,7 @@ final readonly class Ocpp16Acceptor implements WebsocketAcceptor
         }
 
         $address = $request->getClient()->getRemoteAddress();
-        if (!$address instanceof InternetAddress || !IpUtils::checkIp($address->getHost(), $this->trustedProxies)) {
+        if (!$address instanceof InternetAddress || !IpUtils::checkIp($address->getAddress(), $this->trustedProxies)) {
             return false;
         }
 
