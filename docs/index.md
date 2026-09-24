@@ -7,6 +7,8 @@ handlers, or a credential store.
 
 ## Installation
 
+For a concise host-application setup, see the [quickstart](quickstart.md).
+
 Once the package is available to Composer, install it in a Symfony application:
 
 ```bash

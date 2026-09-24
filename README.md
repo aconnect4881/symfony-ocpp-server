@@ -18,6 +18,7 @@ queue; the host app still supplies its own message handlers.
 
 See [the package documentation](docs/index.md) for configuration, service
 bindings, startup, and a codec example.
+For the installing application, follow the [short quickstart](docs/quickstart.md).
 
 A [Symfony Flex recipe draft](flex-recipe/aconnect4881/symfony-ocpp-server/0.1/)
 adds a commented `config/packages/aconnect_ocpp.yaml`. Flex can apply it
