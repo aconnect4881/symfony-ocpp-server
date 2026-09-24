@@ -6,10 +6,12 @@ The package includes a Symfony bundle entry point, an OCPP 1.6 JSON envelope
 codec for CALL, CALLRESULT and CALLERROR messages, and an HTTP Basic
 authentication gate for the WebSocket handshake. An AMPHP WebSocket acceptor
 performs the authenticated OCPP 1.6 upgrade. The `ocpp:server:start` command
-starts a direct TLS WebSocket listener configured in
-`config/packages/aconnect_ocpp.yaml`. The host application provides a credential
-verifier and a connection handler. Action payload validation and host
-application message handling have not been implemented yet.
+starts a WebSocket listener configured in
+`config/packages/aconnect_ocpp.yaml`. The bundle owns the WebSocket and OCPP
+frame loop. The host application supplies a credential verifier and a handler
+for its own OCPP action responses. It supports direct TLS and an explicitly
+trusted TLS-terminating reverse proxy. OCPP action payload validation and
+server-initiated requests have not been implemented yet.
 
 See [the package documentation](docs/index.md) for configuration, service
 bindings, startup, and a codec example.

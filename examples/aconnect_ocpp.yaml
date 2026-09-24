@@ -1,10 +1,11 @@
 # Copy to the host Symfony application's config/packages/aconnect_ocpp.yaml.
 aconnect_ocpp:
     host: '0.0.0.0'
-    port: 9000
+    port: 8081
     path_prefix: '/ocpp/'
     credential_verifier_service: 'App\Ocpp\DatabaseChargePointCredentialVerifier'
-    client_handler_service: 'App\Ocpp\ChargePointConnectionHandler'
+    action_handler_service: 'App\Ocpp\ChargePointActionHandler'
+    transport: direct_tls
     tls:
         certificate: '%env(resolve:OCPP_TLS_CERTIFICATE)%'
         private_key: '%env(resolve:OCPP_TLS_PRIVATE_KEY)%'

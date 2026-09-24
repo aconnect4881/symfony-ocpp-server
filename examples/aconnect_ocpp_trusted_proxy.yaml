@@ -1,0 +1,11 @@
+# Alternative to direct TLS; copy to config/packages/aconnect_ocpp.yaml.
+# The reverse proxy must overwrite X-Forwarded-Proto and prevent public access
+# to this internal listener. Replace this example address with the proxy's IP.
+aconnect_ocpp:
+    host: '127.0.0.1'
+    port: 8081
+    path_prefix: '/ocpp/'
+    credential_verifier_service: 'App\Ocpp\DatabaseChargePointCredentialVerifier'
+    action_handler_service: 'App\Ocpp\ChargePointActionHandler'
+    transport: trusted_proxy
+    trusted_proxies: ['127.0.0.1']

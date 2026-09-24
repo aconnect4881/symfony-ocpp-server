@@ -2,8 +2,8 @@
 
 This package is a reusable Symfony bundle with an OCPP 1.6 JSON envelope codec
 and an HTTP Basic authentication gate for AMPHP WebSocket Server. It does not
-yet provide OCPP action payload validation or a host application's message
-handlers and credential store.
+yet provide OCPP action payload validation, application-specific action
+handlers, or a credential store.
 
 ## Installation
 
@@ -22,7 +22,7 @@ return [
 ];
 ```
 
-## Start a direct WSS listener
+## Start the WebSocket listener
 
 Copy [`examples/aconnect_ocpp.yaml`](../examples/aconnect_ocpp.yaml) to the
 host application's `config/packages/aconnect_ocpp.yaml`:
@@ -30,10 +30,11 @@ host application's `config/packages/aconnect_ocpp.yaml`:
 ```yaml
 aconnect_ocpp:
     host: '0.0.0.0'
-    port: 9000
+    port: 8081
     path_prefix: '/ocpp/'
     credential_verifier_service: 'App\Ocpp\DatabaseChargePointCredentialVerifier'
-    client_handler_service: 'App\Ocpp\ChargePointConnectionHandler'
+    action_handler_service: 'App\Ocpp\ChargePointActionHandler'
+    transport: direct_tls
     tls:
         certificate: '%env(resolve:OCPP_TLS_CERTIFICATE)%'
         private_key: '%env(resolve:OCPP_TLS_PRIVATE_KEY)%'
@@ -44,16 +45,28 @@ to the certificate chain and its unencrypted private key. Keep the private key
 outside the web root and do not commit it. Make sure the certificate covers the
 hostname used by the charging stations. Bind `host` to an address accessible to
 the stations; `0.0.0.0` binds all IPv4 interfaces. The default host is
-`127.0.0.1`, port `9000`, and path prefix `/ocpp/`. TLS is mandatory; an
-invalid or mismatched key fails at startup. The server only accepts direct TLS
-connections, not proxy-terminated TLS.
+`127.0.0.1`, port `8081`, and path prefix `/ocpp/`. If the environment defines
+`PORT`, the command uses that assigned port instead. `8081` is just an internal
+default; the public `wss://` URL normally uses the HTTPS route's port. An
+invalid or mismatched key fails at startup in `direct_tls` mode.
 
-The `credential_verifier_service` and `client_handler_service` settings name
+If TLS ends at a reverse proxy, use
+[`examples/aconnect_ocpp_trusted_proxy.yaml`](../examples/aconnect_ocpp_trusted_proxy.yaml)
+instead. Set `transport: trusted_proxy` and list the proxy's actual IP addresses
+or CIDR ranges under `trusted_proxies`. No certificate or key is needed by this
+backend listener. The proxy must overwrite `X-Forwarded-Proto` with the
+original external scheme, permit only HTTPS on the public OCPP route, and
+prevent direct public access to the backend socket. The bundle checks the
+actual peer address and requires exactly one `X-Forwarded-Proto: https`
+header before allowing an HTTP Basic check and WebSocket upgrade. Restrict
+`trusted_proxies` to the proxy itself, not all private addresses.
+
+The `credential_verifier_service` and `action_handler_service` settings name
 Symfony services. With the standard `App\:` service registration in
 `config/services.yaml`, the example class names are discovered automatically:
 no extra aliases are needed. The verifier class must implement
-`ChargePointCredentialVerifier`, and the handler must implement AMPHP's
-`WebsocketClientHandler`. The command receives both services through Symfony's
+`ChargePointCredentialVerifier`, and the action handler must implement the
+bundle's `CallHandler`. The command receives both services through Symfony's
 container. If you omit these two config settings, the package uses the two
 interface names as service IDs, which can instead be aliased in
 `config/services.yaml`.
@@ -75,10 +88,21 @@ hash. This simple DBAL implementation performs a synchronous query and password
 check on the server loop; evaluate a nonblocking credential store or workers
 before serving many concurrent chargers.
 
-The handler receives an authenticated WebSocket client and can decode OCPP 1.6
-text frames with `FrameCodec`. The package does not decide what OCPP actions
-mean to your app; `App\Ocpp\ChargePointConnectionHandler` is a placeholder
-until the host app implements that behavior.
+The bundle accepts the authenticated WebSocket client, rejects binary frames,
+decodes OCPP 1.6 JSON, passes incoming CALLs to `CallHandler`, and sends back
+CALLRESULT or CALLERROR with the same message ID. The app's handler receives
+the charge point identity and a decoded `Call`, and returns a response payload
+(`stdClass`) or `CallError`. It decides what those actions mean to its data;
+`App\Ocpp\ChargePointActionHandler` is an app-specific placeholder. The bundle
+does not yet initiate its own CALLs or correlate replies to them.
+
+Optionally set `connection_observer_service` to a Symfony service implementing
+`ConnectionObserver`. The bundle calls it on connection and disconnection; the
+app can update its own charger's status or last-seen time there. Callback
+exceptions are logged without terminating the WebSocket server. The bundle
+does not depend on your `ChargeBox` entity or Doctrine storage. The example
+client registry, outbound sender and Messenger polling are not yet bundled;
+server-initiated requests and their reply correlation need further work.
 
 Start the process in the host application:
 
@@ -87,10 +111,12 @@ php bin/console ocpp:server:start
 ```
 
 The charging station connects to
-`wss://your-hostname.example:9000/ocpp/<url-encoded-charge-point-id>` using
+`wss://your-hostname.example/ocpp/<url-encoded-charge-point-id>` using
 HTTP Basic and the `ocpp1.6` subprotocol. Run the command as a long-lived
-service; SIGINT and SIGTERM stop the server. Ensure the host firewall allows the
-configured port.
+service; SIGINT and SIGTERM stop the server. In direct TLS mode, include the
+listener's port in the public URL if it is not 443. With a reverse proxy, route
+the public URL to the command's assigned backend port and disable buffering and
+caching for WebSocket requests.
 
 ## OCPP 1.6 JSON messages
 
@@ -114,15 +140,16 @@ if ($message instanceof Call) {
 
 The codec does not check action names against the OCPP schema, validate their
 payloads, correlate a response with an outstanding request, or enforce unique
-IDs across a WebSocket connection. The host transport must enforce those rules
-where appropriate and negotiate the `ocpp1.6` WebSocket subprotocol.
+IDs across a WebSocket connection. The application action handler validates
+the relevant action payloads; the bundle negotiates `ocpp1.6`.
 
 ## Charge point authentication
 
 OCPP 1.6 Security Profile 2 uses HTTP Basic over TLS. Authenticate the HTTP
 request before upgrading it to WebSocket. The Basic username must exactly match
 the charge point identity from the connection URL. The command extracts that
-identity from a URL and terminates TLS. The package does not store passwords
+identity from a URL and terminates TLS or verifies a trusted TLS terminator.
+The package does not store passwords
 or issue tokens.
 
 Implement `ChargePointCredentialVerifier` in the host application. Its `verify`
@@ -159,14 +186,15 @@ connections from the same charge point.
 ## AMPHP WebSocket transport
 
 The package uses `amphp/websocket-server` 4.x on `amphp/http-server` 3.x.
-`Ocpp16Acceptor` accepts only a **direct TLS connection** to the AMPHP server.
+`Ocpp16Acceptor` accepts a direct TLS connection or a cleartext connection from
+an explicitly trusted proxy that confirms the original HTTPS scheme.
 It reads one URL segment after `/ocpp/` as the charge point identity, checks
 the `ocpp1.6` subprotocol and a single Basic Authorization header, then
 delegates the RFC 6455 upgrade to AMPHP. Invalid credentials receive HTTP 401
-before the upgrade. Encoded slashes, an absent subprotocol, or a cleartext
-connection are rejected.
+before the upgrade. Encoded slashes, an absent subprotocol, or an untrusted
+cleartext connection are rejected.
 
-The `ocpp:server:start` command mounts the acceptor on a TLS-enabled AMPHP
+The `ocpp:server:start` command mounts the acceptor on an AMPHP
 `Websocket` endpoint. To embed the acceptor in a different server process, use:
 
 ```php
@@ -179,17 +207,16 @@ $endpoint = new Websocket($tlsHttpServer, $logger, $acceptor, $hostClientHandler
 $tlsHttpServer->start($endpoint, $errorHandler);
 ```
 
-The command configures the AMPHP listener with a TLS certificate and exposes
-`wss://` to charge points. A plain HTTP listener, even if its request URI says
-`https`, is rejected because TLS is checked on the actual socket. If TLS is
-terminated at a reverse proxy, this acceptor will reject the internal
-cleartext hop; a trusted proxy integration must be designed for that topology.
-Your client handler can decode text messages with `FrameCodec`; it must reject
-binary frames and validate OCPP action payloads before handling them. Do not
+In direct mode the command configures TLS on the AMPHP socket. In proxy mode
+it verifies the actual proxy peer and original HTTPS scheme. An untrusted
+cleartext request is rejected even if its URI claims `https`.
+The bundle's client handler decodes text messages with `FrameCodec` and rejects
+binary frames. The app's action handler must validate OCPP action payloads. Do not
 log Authorization headers. Avoid blocking credential-store I/O on AMPHP's event
 loop and rate-limit failed handshakes at the server or edge.
 
 ## Next design decisions
 
-Integrate the host credential verifier and message handler. Add OCPP action
-schemas and request correlation before processing operational messages.
+Integrate the host credential verifier and action handler. Add OCPP action
+schemas and server-initiated request correlation before processing all
+operational messages.

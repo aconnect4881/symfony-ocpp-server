@@ -8,14 +8,16 @@ use Aconnect\OcppBundle\Security\BasicAuthenticator;
 use Amp\Http\HttpStatus;
 use Amp\Http\Server\Request;
 use Amp\Http\Server\Response;
+use Amp\Socket\InternetAddress;
 use Amp\Websocket\Server\Rfc6455Acceptor;
 use Amp\Websocket\Server\WebsocketAcceptor;
+use Symfony\Component\HttpFoundation\IpUtils;
 
 /**
  * Authenticates an OCPP 1.6 WebSocket request before the HTTP 101 upgrade.
  *
- * Only directly TLS-protected connections are accepted. A proxy-terminated
- * connection needs a separately designed, trusted TLS boundary.
+ * Cleartext backend connections are accepted only from configured proxy IPs
+ * that assert the original connection used HTTPS.
  */
 final readonly class Ocpp16Acceptor implements WebsocketAcceptor
 {
@@ -25,6 +27,7 @@ final readonly class Ocpp16Acceptor implements WebsocketAcceptor
         private BasicAuthenticator $authenticator,
         private string $pathPrefix = '/ocpp/',
         ?WebsocketAcceptor $websocketAcceptor = null,
+        private array $trustedProxies = [],
     ) {
         if ($pathPrefix === '/' || !str_starts_with($pathPrefix, '/') || !str_ends_with($pathPrefix, '/')) {
             throw new \InvalidArgumentException('The OCPP path prefix must start and end with a slash.');
@@ -50,7 +53,7 @@ final readonly class Ocpp16Acceptor implements WebsocketAcceptor
             return new Response(HttpStatus::BAD_REQUEST);
         }
 
-        if ($request->getClient()->getTlsInfo() === null) {
+        if (!$this->isSecure($request)) {
             return new Response(HttpStatus::FORBIDDEN);
         }
 
@@ -74,5 +77,24 @@ final readonly class Ocpp16Acceptor implements WebsocketAcceptor
         }
 
         return $response;
+    }
+
+    private function isSecure(Request $request): bool
+    {
+        if ($request->getClient()->getTlsInfo() !== null) {
+            return true;
+        }
+
+        if ($this->trustedProxies === []) {
+            return false;
+        }
+
+        $address = $request->getClient()->getRemoteAddress();
+        if (!$address instanceof InternetAddress || !IpUtils::checkIp($address->getHost(), $this->trustedProxies)) {
+            return false;
+        }
+
+        // Reject duplicate, comma-separated, or client-supplied protocol claims.
+        return $request->getHeaderArray('x-forwarded-proto') === ['https'];
     }
 }

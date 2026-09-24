@@ -21,7 +21,8 @@ final class AconnectOcppBundleTest extends TestCase
             'host' => '0.0.0.0',
             'port' => 8443,
             'credential_verifier_service' => 'app.test_credential_verifier',
-            'client_handler_service' => 'app.test_client_handler',
+            'action_handler_service' => 'app.test_action_handler',
+            'connection_observer_service' => 'app.test_connection_observer',
             'tls' => ['certificate' => '/cert.pem', 'private_key' => '/key.pem'],
         ]], $container);
 
@@ -31,8 +32,29 @@ final class AconnectOcppBundleTest extends TestCase
         self::assertSame('/ocpp/', $command->getArgument('$pathPrefix'));
         self::assertSame('/cert.pem', $command->getArgument('$certificate'));
         self::assertSame('/key.pem', $command->getArgument('$privateKey'));
+        self::assertSame('direct_tls', $command->getArgument('$transport'));
+        self::assertSame([], $command->getArgument('$trustedProxies'));
         self::assertEquals(new Reference('app.test_credential_verifier'), $command->getArgument('$verifier'));
-        self::assertEquals(new Reference('app.test_client_handler'), $command->getArgument('$clientHandler'));
+        self::assertEquals(new Reference('app.test_action_handler'), $command->getArgument('$actionHandler'));
+        self::assertEquals(new Reference('app.test_connection_observer'), $command->getArgument('$connectionObserver'));
         self::assertTrue($command->hasTag('console.command'));
+    }
+
+    public function testProxyConfigurationNeedsNoLocalCertificate(): void
+    {
+        $container = new ContainerBuilder();
+        $container->setParameter('kernel.environment', 'test');
+        $container->setParameter('kernel.build_dir', sys_get_temp_dir());
+        (new AconnectOcppBundle())->getContainerExtension()->load([[
+            'transport' => 'trusted_proxy',
+            'trusted_proxies' => ['127.0.0.1'],
+        ]], $container);
+
+        $command = $container->getDefinition(StartOcppServerCommand::class);
+        self::assertSame('trusted_proxy', $command->getArgument('$transport'));
+        self::assertSame(['127.0.0.1'], $command->getArgument('$trustedProxies'));
+        self::assertNull($command->getArgument('$certificate'));
+        self::assertNull($command->getArgument('$privateKey'));
+        self::assertNull($command->getArgument('$connectionObserver'));
     }
 }

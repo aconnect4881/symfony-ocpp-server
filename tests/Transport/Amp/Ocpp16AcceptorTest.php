@@ -10,6 +10,7 @@ use Aconnect\OcppBundle\Transport\Amp\Ocpp16Acceptor;
 use Amp\Http\HttpStatus;
 use Amp\Http\Server\Driver\Client;
 use Amp\Http\Server\Request;
+use Amp\Socket\InternetAddress;
 use Amp\Socket\TlsInfo;
 use League\Uri\Http;
 use PHPUnit\Framework\TestCase;
@@ -61,6 +62,36 @@ final class Ocpp16AcceptorTest extends TestCase
         self::assertSame(0, $verifier->calls);
     }
 
+    public function testTrustedProxyCanForwardAnHttpsHandshake(): void
+    {
+        $verifier = $this->verifier();
+        $request = $this->request('/ocpp/CP-01', [
+            'x-forwarded-proto' => 'https',
+            'authorization' => 'Basic '.base64_encode('CP-01:'.str_repeat('x', 16)),
+        ], false, '127.0.0.1');
+
+        $response = (new Ocpp16Acceptor(new BasicAuthenticator($verifier), '/ocpp/', null, ['127.0.0.1']))->handleHandshake($request);
+        self::assertSame(HttpStatus::SWITCHING_PROTOCOLS, $response->getStatus());
+        self::assertSame(1, $verifier->calls);
+    }
+
+    public function testUntrustedOrAmbiguousProxyClaimsNeverReachVerifier(): void
+    {
+        $verifier = $this->verifier();
+        $acceptor = new Ocpp16Acceptor(new BasicAuthenticator($verifier), '/ocpp/', null, ['127.0.0.1']);
+        $credentials = 'Basic '.base64_encode('CP-01:'.str_repeat('x', 16));
+
+        foreach ([
+            $this->request('/ocpp/CP-01', ['x-forwarded-proto' => 'https', 'authorization' => $credentials], false, '192.0.2.3'),
+            $this->request('/ocpp/CP-01', ['x-forwarded-proto' => 'http', 'authorization' => $credentials], false),
+            $this->request('/ocpp/CP-01', ['x-forwarded-proto' => ['https', 'https'], 'authorization' => $credentials], false),
+            $this->request('/ocpp/CP-01', ['x-forwarded-proto' => 'https,http', 'authorization' => $credentials], false),
+        ] as $request) {
+            self::assertSame(HttpStatus::FORBIDDEN, $acceptor->handleHandshake($request)->getStatus());
+        }
+        self::assertSame(0, $verifier->calls);
+    }
+
     public function testRejectsEncodedSlashAndMissingOcppSubprotocol(): void
     {
         $verifier = $this->verifier();
@@ -78,9 +109,10 @@ final class Ocpp16AcceptorTest extends TestCase
     }
 
     /** @param array<string, string|array<string>> $headers */
-    private function request(string $path, array $headers = [], bool $tls = true): Request
+    private function request(string $path, array $headers = [], bool $tls = true, string $remoteIp = '127.0.0.1'): Request
     {
         $client = $this->createMock(Client::class);
+        $client->method('getRemoteAddress')->willReturn(new InternetAddress($remoteIp, 54321));
         $client->method('getTlsInfo')->willReturn($tls ? TlsInfo::fromMetaData([
             'protocol' => 'TLSv1.3',
             'cipher_name' => 'TLS_AES_128_GCM_SHA256',
